@@ -14,6 +14,8 @@ abstract class DesCbcEnc extends AbstractEncTypeHandler {
         keyMaker(new DesKeyMaker(this.encProvider()));
     }
 
+    //Fixing https://issues.apache.org/jira/projects/DIRKRB/issues/DIRKRB-472?
+    // error in Java implementation of haox
     @Override
     protected void encryptWith(byte[] workBuffer, int[] workLens,
                                  byte[] key, byte[] iv, int usage) throws KrbException {
@@ -28,7 +30,13 @@ abstract class DesCbcEnc extends AbstractEncTypeHandler {
 
         // padding
         for (int i = confounderLen + checksumLen + dataLen; i < paddingLen; ++i) {
-            workBuffer[i] = 0;
+            workBuffer[i] = 0; // Empty the workbuffer here
+        }
+
+        byte[] checksum = new byte[checksumLen];
+        for (int i = 0; i < checksumLen; i++) {
+            checksum[i] = workBuffer[confounderLen + i];
+            workBuffer[confounderLen + i] = 0;
         }
 
         // checksum
@@ -36,6 +44,13 @@ abstract class DesCbcEnc extends AbstractEncTypeHandler {
         byte[] cksum = hashProvider().output();
         System.arraycopy(cksum, 0, workBuffer, confounderLen, checksumLen);
 
+        //The idea is that doublt check at the time of encryption too
+        //to figure out if checksum are equal.
+        // that way if we don't encrypt faulty keys then decryption won't
+        // result in error too.
+        if (! checksumEqual(checksum, cksum)) {
+            throw new KrbException(KrbErrorCode.KRB_AP_ERR_BAD_INTEGRITY);
+        }
         encProvider().encrypt(key, iv, workBuffer);
     }
 
